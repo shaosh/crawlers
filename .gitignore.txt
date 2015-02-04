@@ -1,0 +1,5 @@
+blogcrawler/node_modules
+blogcrawler/blog
+blogcrawler/photo
+helpcrawler/node_modules
+helpcrawler/post

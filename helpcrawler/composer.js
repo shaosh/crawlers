@@ -1,37 +1,64 @@
 var Composer = function(){};
-var cheerio = require('cheerio');
-var template = '<!DOCTYPE html><html lang="en-US"><head><meta http-equiv="Content-Type" value="text/html; charset=utf-8"><title></title></head><body></body></html>',
-	meta = '<meta>',
+var cheerio = require('cheerio'),
+	S = require('string');
+var template = [
+        '<!DOCTYPE html>',
+        '<html lang="en-US">',
+        '<head>',
+        '\t<meta http-equiv="Content-Type" value="text/html; charset=utf-8">',
+        '',
+        '\t<title>{{TITLE}}</title>',
+        '',
+        '{{HEAD}}',
+        '</head>',
+        '<body>',
+        '</body>',
+        '</html>'
+    ].join('\n'),
+    meta = '<meta>',
 	p = '<p></p>',
 	img = '<img>',
 	h = '<h1></h1>';
 var creatRouteFromTitle = function(title){
-	return title.replace(/['\^\$\.\*\+\?\=\!\:\|\\\/\(\)\[\]\{\}]/g, '')
-				.replace(/\s/g, '-')
-				.replace(/-+/g, '-').toLowerCase();
+	return S(title).slugify().s;
 };
-var getDescription = function(content){
-	$ = cheerio.load(content);
-	return $('p span').first();
+
+function stripNewLines(html) {
+  return html.replace(/\n/g, '__!NEWLINE!__');
 }
+function putNewLinesBack(html) {
+  return html.replace(/__\!NEWLINE\!__/g, '\n');
+}
+
+function removeHtmlTags(html) {
+    return (html || '').replace(/<\s*[\w\d\-]+[^>]*?>/g, '');
+}
+
+function removeAttributes(html, attribute) {
+  return html.replace(new RegExp('\\s+' + attribute.replace(/\-/g, '\\-') + '\\s*=\\s*"[^"]*?"', 'ig'), '');
+}
+
+function loadTemplate(vals) {
+    var replacedTemplate = template;
+    for (var key in vals) {
+        replacedTemplate = replacedTemplate.replace(new RegExp('\\{\\{' + key + '\\}\\}'), vals[key]);
+    }
+    replacedTemplate = replacedTemplate.replace(/\{\{[^\}]+\}\}/g, '');
+    return cheerio.load(replacedTemplate);
+}
+
 Composer.prototype.compose = function(material){
-	var $ = cheerio.load(template);
+	var title, head, $;
+	title = material.title || '';
+	head = [];
 
 	//Compose the head
-	$('head').append('<title>' + material.title + '</title>');
+	head.push('\t<meta key="resource" value="' + removeHtmlTags(material.type) + '">');
+    head.push('\t<meta key="layout" value="' + removeHtmlTags(material.type + '/post') + '">');
+    head.push('\t<meta key="route" value="' + '/post/' + material.type + '/' + creatRouteFromTitle(material.title) + '">');
 	
-	$('head').append(
-			cheerio(meta).attr('key', 'resource')
-				.attr('value', material.type)
-		).append(
-			cheerio(meta).attr('key', 'layout')
-				.attr('value', material.type + '/post')
-		).append(
-			cheerio(meta).attr('key', 'route')
-				.attr('value', '/' + material.type + '/' + creatRouteFromTitle(material.title))
-		);
-
 	material.foldername = creatRouteFromTitle(material.title);
+	$ = loadTemplate({ TITLE: title, HEAD: head.join('\n') });
 	//Compose the body
 	$('body').append(cheerio(h).text(material.title));
 	material.contents.each(function(index, value){
@@ -49,6 +76,6 @@ Composer.prototype.compose = function(material){
 		}
 		$('body').append(cheerio(p).append(value));
 	});
-	return $.html();
+	return removeAttributes(removeAttributes(removeAttributes($.html(), 'id'), 'class'), 'style');
 };
 module.exports = new Composer();

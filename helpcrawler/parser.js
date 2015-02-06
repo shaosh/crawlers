@@ -19,6 +19,7 @@ Parser.prototype.parse = function(post){
 		obj.title = $('.faq-question').text();
 		obj.contents = $('.faq-answer>p, .faq-answer>ul, .faq-answer>ol');
 	}
+	obj.$ = $;
 	return obj;
 };
 

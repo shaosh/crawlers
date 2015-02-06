@@ -1,14 +1,23 @@
 var Crawler = function () {};
 var http = require('http');
-	request = require('request');
+	request = require('request'),
+	cacher = require('./cacher.js');
 Crawler.prototype.get=function(url,callback){
-	request({url:url, headers: {'User-Agent': 'request'}}, function (error, response, body) {
-		if (!error && response.statusCode == 200) {
-			callback(body,response.statusCode);
-		}
-		else{
-			console.log(error,response.statusCode);
-		}
-	})
+	cacher.get(url, function(err, content){
+		if(err) return callback(err);
+		if(content) return callback(null, content, 200);
+		request({url:url, headers: {'User-Agent': 'request'}}, function (error, response, body) {
+			if(error) return callback(error);
+			if (response.statusCode == 200) {
+				cacher.put(url, body, function(err){
+					if(err) return callback(err);
+					callback(null, body, response.statusCode);
+				});
+			}
+			else{
+				return callback(new Error('Invalid status code for "' + url + '": ' + response.statusCode));
+			}
+		})
+	});	
 };
 module.exports = new Crawler();

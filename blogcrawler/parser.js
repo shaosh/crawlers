@@ -15,6 +15,7 @@ Parser.prototype.parse = function(article){
 	obj.categories = $('.categories a');
 	obj.tags = $('.tags a');
 	obj.like = ($('.like-count').text().split(' '))[0];
+    obj.$ = $;
 	return obj;
 };
 

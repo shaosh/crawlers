@@ -1,56 +1,78 @@
+var S = require('string');
+
 var Composer = function(){};
 var cheerio = require('cheerio');
-var template = '<!DOCTYPE html><html lang="en-US"><head><meta http-equiv="Content-Type" value="text/html; charset=utf-8"><title></title></head><body></body></html>',
+var template = [
+        '<!DOCTYPE html>',
+        '<html lang="en-US">',
+        '<head>',
+        '\t<meta http-equiv="Content-Type" value="text/html; charset=utf-8">',
+        '',
+        '\t<title>{{TITLE}}</title>',
+        '',
+        '{{HEAD}}',
+        '</head>',
+        '<body>',
+        '</body>',
+        '</html>'
+    ].join('\n'),
 	meta = '<meta>',
 	p = '<p></p>',
 	img = '<img>',
 	h = '<h1></h1>';
 var creatRouteFromTitle = function(title){
-	return title.replace(/['\^\$\.\*\+\?\=\!\:\|\\\/\(\)\[\]\{\}]/g, '')
-				.replace(/\s/g, '-')
-				.replace(/-+/g, '-').toLowerCase();
+	return S(title).slugify().s;
 };
-var getDescription = function(content){
-	$ = cheerio.load(content);
-	return $('p span').first();
-}
-Composer.prototype.compose = function(material){
-	var $ = cheerio.load(template);
 
-	//Compose the head
-	$('head').append('<title>' + material.title + '</title>');
+function stripNewLines(html) {
+  return html.replace(/\n/g, '__!NEWLINE!__');
+}
+function putNewLinesBack(html) {
+  return html.replace(/__\!NEWLINE\!__/g, '\n');
+}
+
+function removeHtmlTags(html) {
+    return (html || '').replace(/<\s*[\w\d\-]+[^>]*?>/g, '');
+}
+
+
+function removeAttributes(html, attribute) {
+  return html.replace(new RegExp('\\s+' + attribute.replace(/\-/g, '\\-') + '\\s*=\\s*"[^"]*?"', 'ig'), '');
+}
+
+
+function loadTemplate(vals) {
+    var replacedTemplate = template;
+    for (var key in vals) {
+        replacedTemplate = replacedTemplate.replace(new RegExp('\\{\\{' + key + '\\}\\}'), vals[key]);
+    }
+    replacedTemplate = replacedTemplate.replace(/\{\{[^\}]+\}\}/g, '');
+    return cheerio.load(replacedTemplate);
+}
+
+Composer.prototype.compose = function(material){
+    var title, head;
+
+    title = material.title || '';
+
+    head = [];
+
 	material.categories.each(function(index, value){
-		$('head').append(
-			cheerio(meta).attr('key', material.type + 'Category')
-				.attr('value', cheerio(value).text())
-		);
+        head.push('\t<meta key="' + material.type + 'Category' + '" value="' + removeHtmlTags(material.$(this).html()) + '">');
 	});
 	material.tags.each(function(index, value){
-		$('head').append(
-			cheerio(meta).attr('key', material.type + 'Tag')
-				.attr('value', cheerio(value).text())
-		);
+        head.push('\t<meta key="' + material.type + 'Tag' + '" value="' + removeHtmlTags(material.$(this).html()) + '">');
 	});
-	$('head').append(
-			cheerio(meta).attr('key', 'date')
-				.attr('value', material.datetext)
-		).append(
-			cheerio(meta).attr('key', 'resource')
-				.attr('value', material.type)
-		).append(
-			cheerio(meta).attr('key', 'layout')
-				.attr('value', material.type + '/post')
-		).append(
-			cheerio(meta).attr('key', 'route')
-				.attr('value', '/' + material.type + '/' + material.year + '/' + material.month + '/' + material.date + '/' + creatRouteFromTitle(material.title))
-		).append(
-			cheerio(meta).attr('key', 'description')
-				.attr('value', cheerio(getDescription(material.contents).text()))
-		);
+    head.push('\t<meta key="date" value="' + removeHtmlTags(material.datetext) + '">');
+    head.push('\t<meta key="resource" value="' + removeHtmlTags(material.type) + '">');
+    head.push('\t<meta key="layout" value="' + removeHtmlTags(material.type + '/post') + '">');
+    head.push('\t<meta key="route" value="' + '/' + material.type + '/' + material.year + '/' + material.month + '/' + material.date + '/' + creatRouteFromTitle(removeHtmlTags(material.title)) + '">');
 
 	material.foldername = creatRouteFromTitle(material.title);
+
+    var $ = loadTemplate({ TITLE: title, HEAD: head.join('\n') });
+
 	//Compose the body
-	$('body').append(cheerio(h).text(material.title));
 	material.contents.each(function(index, value){
 		// if(cheerio(value).is('.sqs-block-image .image-caption p') || cheerio(value).is('.sqs-block-html p')){
 		// 	value = cheerio(value).text();
@@ -70,6 +92,7 @@ Composer.prototype.compose = function(material){
 		$('body').append(cheerio(p).append(value));
 	});
 	// console.log('Entire HTML: ', $.html());
-	return $.html();
+
+    return removeAttributes(removeAttributes(removeAttributes($.html(), 'id'), 'class'), 'style');
 };
 module.exports = new Composer();

@@ -1,17 +1,38 @@
 var Writer = function(){};
 var fs = require('fs'),
-	cheerio = require('cheerio'),
-	http = require('http');
-Writer.prototype.writefile = function(object, html){
-	var paths = [object.type, object.year + '-' + object.month, object.foldername],
+    pathUtil = require('path'),
+    urlUtil = require('url'),
+	cheerio = require('cheerio');
+
+var S = require('string');
+var async = require('async');
+var request = require('request');
+
+function downloadFile(remoteUrl, destination, callback) {
+    console.log('\t\t\t-> Downloading file from %s', remoteUrl);
+    fs.exists(destination, function(exists) {
+        if (exists) {
+            console.log('\t\t\t\t-> Download file %s already exists on disk', destination);
+            return callback(null);
+        }
+        else {
+            request(remoteUrl, callback).pipe(fs.createWriteStream(destination));
+        }
+    });
+}
+
+Writer.prototype.writefile = function(concurrency, object, html, callback){
+	var paths = [object.type, object.year + '-' + S(object.month).padLeft(2, '0').s, object.foldername + '.html'],
 		postPath = __dirname + '/' + paths.join('/'),//'/' + object.type + '/' + object.year + '-' + object.month + '/' + object.foldername,
 		publicPath = postPath + '/public',
 		imgPath = publicPath + '/img',
 		$ = cheerio.load(html),
+        downloadTasks = [],
+        createAssetDirectory,
 		imgs;
-	console.log('Begin to write article', object.title);
-	// fs.mkdir(postPath, 
-	// 	fs.writeFile(postPath + '/page.html', html, 
+	console.log('\t\t-> Begin to write article', object.title);
+	// fs.mkdir(postPath,
+	// 	fs.writeFile(postPath + '/page.html', html,
 	// 		function(err){
 	// 			if(err){
 	// 				return console.log(err);
@@ -21,7 +42,7 @@ Writer.prototype.writefile = function(object, html){
 	// 	)
 	// );
 	// fs.mkdirSync(postPath + publicPath + imgPath);
-	
+
 
 	// var paths = ['/' + object.type, '/' + object.year + '-' + object.month],
 	// 		filepath = paths.join();
@@ -34,54 +55,61 @@ Writer.prototype.writefile = function(object, html){
 		pathExist = fs.existsSync(path);
 		if(!pathExist){
 			fs.mkdirSync(path);
-			if(i === paths.length - 1){
-				path = publicPath; 
-				fs.mkdirSync(path);
-				path = imgPath;
-				fs.mkdirSync(path);
+			if(i === paths.length - 1){ // only create directory if needed
+                (function(path, imgPath) {
+                    createAssetDirectory = function() {
+                        path = publicPath;
+                        fs.mkdirSync(path);
+                        path = imgPath;
+                        fs.mkdirSync(path);
+                    };
+                })(path, imgPath);
 			}
 		}
 	}
 
-	imgs = $('img');
+    imgs = $('img');
 	if(imgs.length > 0){
-		imgs.each(function(index, value){
-			console.log('Downloading file from', cheerio(value).attr('src'));
-			var src = cheerio(value).attr('src'),
-				file = fs.createWriteStream(imgPath + '/image' + index + '.jpg'),
-				request = http.get(src, function(response){					
-					// if(response.statusCode === 200){
-					// 	console.log('Response Status Code:', response.statusCode);
-					// 	return;
-					// }
-					if(response.statusCode === 200){						
-						response.pipe(file);
-					}
-					else{
-						console.log('Can\'t download the file. Response Status Code:', response.statusCode);
-					}
-					
-					cheerio(value).attr('src', 'public/img/image' + index + '.jpg');
-					if(index === imgs.length - 1){
-						fs.writeFile(postPath + '/page.html', $.html(), function(err){
-							if(err){
-								return console.log(err);
-							}
-							console.log(postPath + '/page.html');
-						});
-					}
-				}).on('error', function(){console.log('GET Request Error:', src)});
+        console.log('\t\t-> Found %d images', imgs.length);
+		imgs.each(function(){
+            var $this = $(this);
+            var remoteUrl = $this.attr('src');
+            var remoteUrlParsed = urlUtil.parse(remoteUrl);
+            if (/\.squarespace\.com$/.test(remoteUrlParsed.host)) { // only download squarespace files, leave others (e.g. facebook.com) as-is
+                var fileName = pathUtil.basename(remoteUrlParsed.pathname) + '.jpg';
+                var destinationUrl = '/img/' + fileName;
+                var destination = pathUtil.join(imgPath, fileName);
+                $this.attr('src', destinationUrl);
+                console.log('\t\t\t-> Queuing image %s', remoteUrlParsed.href);
+                downloadTasks.push(async.apply(downloadFile, remoteUrl, destination));
+            }
+            else {
+                console.log('\t\t\t-> Ignoring image %s', remoteUrlParsed.href);
+            }
 		});
 	}
-	else{
+
+    function saveCurrentPage(saveCallback) {
 		fs.writeFile(postPath + '/page.html', $.html(), function(err){
 			if(err){
-				return console.log(err);
+				return saveCallback(err);
 			}
-			console.log(postPath + '/page.html');
+			console.log('\t\t-> ' + postPath + '/page.html');
+            saveCallback(null);
 		});
-	}
-	
+    }
+
+    if (downloadTasks.length) {
+        createAssetDirectory();
+        async.parallelLimit(downloadTasks, concurrency || 2, function(err) {
+            if (err) throw err;
+            saveCurrentPage(callback);
+        });
+    }
+    else {
+        saveCurrentPage(callback);
+    }
+
 	// fs.writeFile(postPath + '/page.html', $.html(), function(err){
 	// 	if(err){
 	// 		return console.log(err);
